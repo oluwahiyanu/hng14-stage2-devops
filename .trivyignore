@@ -1,0 +1,4 @@
+# Known unfixed CVEs in python:3.11-slim and node:20-slim base images
+# These are acknowledged and will be addressed when upstream patches are available
+CVE-2023-45853
+CVE-2024-0217
