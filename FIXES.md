@@ -89,3 +89,8 @@
 - **Line:** 13, 22
 - **Problem:** Generic error messages with no debugging info
 - **Fix:** Enhanced error responses with actual error details
+
+## Fix 16
+- **File:** `frontend/Dockerfile`
+- **Problem:** `npm ci` failed because `package-lock.json` was missing from the repository.
+- **Fix:** Switched to `npm install --omit=dev` to allow building without a lockfile while still excluding development dependencies. 
