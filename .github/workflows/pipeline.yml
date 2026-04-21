@@ -132,50 +132,71 @@ jobs:
           docker build -t localhost:5000/worker:latest ./worker
           docker build -t localhost:5000/frontend:latest ./frontend
 
-      - name: Install Trivy
-        run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.49.1
+      # Table format scans (Building-breaking steps)
+      - name: Scan API image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: localhost:5000/api:latest
+          format: table
+          severity: CRITICAL
+          exit-code: 1
+          ignore-unfixed: true
 
-      - name: Show all CRITICAL CVEs (for visibility)
-        run: |
-          echo "--- API CRITICAL CVEs ---"
-          trivy image --severity CRITICAL --ignore-unfixed --no-progress localhost:5000/api:latest || true
-          echo "--- WORKER CRITICAL CVEs ---"
-          trivy image --severity CRITICAL --ignore-unfixed --no-progress localhost:5000/worker:latest || true
-          echo "--- FRONTEND CRITICAL CVEs ---"
-          trivy image --severity CRITICAL --ignore-unfixed --no-progress localhost:5000/frontend:latest || true
+      - name: Scan Worker image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: localhost:5000/worker:latest
+          format: table
+          severity: CRITICAL
+          exit-code: 1
+          ignore-unfixed: true
 
-      - name: Scan API image (SARIF)
+      - name: Scan Frontend image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: localhost:5000/frontend:latest
+          format: table
+          severity: CRITICAL
+          exit-code: 1
+          ignore-unfixed: true
+
+      # SARIF generation (Reporting steps - always run)
+      - name: Generate SARIF for API
+        if: always()
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: localhost:5000/api:latest
           format: sarif
           output: trivy-api.sarif
           severity: CRITICAL
-          exit-code: 1
+          exit-code: 0
           ignore-unfixed: true
 
-      - name: Scan Worker image (SARIF)
+      - name: Generate SARIF for Worker
+        if: always()
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: localhost:5000/worker:latest
           format: sarif
           output: trivy-worker.sarif
           severity: CRITICAL
-          exit-code: 1
+          exit-code: 0
           ignore-unfixed: true
 
-      - name: Scan Frontend image (SARIF)
+      - name: Generate SARIF for Frontend
+        if: always()
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: localhost:5000/frontend:latest
           format: sarif
           output: trivy-frontend.sarif
           severity: CRITICAL
-          exit-code: 1
+          exit-code: 0
           ignore-unfixed: true
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload Trivy results
+        uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: trivy-results
           path: "*.sarif"
