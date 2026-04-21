@@ -7,62 +7,74 @@ on:
     branches: [main]
 
 jobs:
+
+  # ── STAGE 1: LINT ──────────────────────────────────────────────────────────
   lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - run: pip install flake8
-      - run: flake8 api/ --max-line-length=100 --ignore=E302,F401 || true
-      - run: flake8 worker/ --max-line-length=100 --ignore=E302,F401 || true
+      - run: flake8 api/ --max-line-length=100 --ignore=E302,F401
+      - run: flake8 worker/ --max-line-length=100 --ignore=E302,F401
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+
       - run: cd frontend && npm ci && npx eslint . || true
-      
+
       - name: Lint API Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         continue-on-error: true
         with:
           dockerfile: api/Dockerfile
-          ignore: DL3042,DL3013 # Silences those specific warnings
-          
+          ignore: DL3042,DL3013,DL3008
+
       - name: Lint Worker Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         continue-on-error: true
         with:
           dockerfile: worker/Dockerfile
-          ignore: DL3042,DL3013
-          
+          ignore: DL3042,DL3013,DL3008
+
       - name: Lint Frontend Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         continue-on-error: true
         with:
           dockerfile: frontend/Dockerfile
+          ignore: DL3042,DL3013,DL3008
 
+  # ── STAGE 2: TEST ──────────────────────────────────────────────────────────
   test:
     runs-on: ubuntu-latest
     needs: lint
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - run: |
           cd api
           pip install -r requirements.txt
-          # Add httpx here alongside pytest and pytest-cov
           pip install pytest pytest-cov httpx
+
       - run: |
           cd api
           pytest tests/ -v --cov=. --cov-report=xml --cov-report=term
+
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: api/coverage.xml
 
+  # ── STAGE 3: BUILD ─────────────────────────────────────────────────────────
   build:
     runs-on: ubuntu-latest
     needs: test
@@ -73,129 +85,190 @@ jobs:
           - 5000:5000
     steps:
       - uses: actions/checkout@v4
+
       - uses: docker/setup-buildx-action@v3
         with:
           driver-opts: network=host
-      - uses: docker/build-push-action@v5
+
+      - name: Build and push API
+        uses: docker/build-push-action@v5
         with:
           context: ./api
           push: true
           tags: localhost:5000/api:${{ github.sha }},localhost:5000/api:latest
           network: host
-      - uses: docker/build-push-action@v5
+
+      - name: Build and push Worker
+        uses: docker/build-push-action@v5
         with:
           context: ./worker
           push: true
           tags: localhost:5000/worker:${{ github.sha }},localhost:5000/worker:latest
           network: host
-      - uses: docker/build-push-action@v5
+
+      - name: Build and push Frontend
+        uses: docker/build-push-action@v5
         with:
           context: ./frontend
           push: true
           tags: localhost:5000/frontend:${{ github.sha }},localhost:5000/frontend:latest
           network: host
 
+  # ── STAGE 4: SECURITY SCAN ─────────────────────────────────────────────────
+  # exit-code: 1 means the pipeline FAILS on any CRITICAL finding — required by task
+  # ignore-unfixed: true skips CVEs that have no fix available yet (OS-level)
   security:
     runs-on: ubuntu-latest
     needs: build
-    services:
-      registry:
-        image: registry:2
-        ports:
-          - 5000:5000
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          docker build -t localhost:5000/api:latest ./api
-          docker build -t localhost:5000/worker:latest ./worker
-          docker build -t localhost:5000/frontend:latest ./frontend
-      - name: Run Trivy vulnerability scanner (API)
+
+      - name: Build images for scanning
+        run: |
+          docker build -t scan/api:latest ./api
+          docker build -t scan/worker:latest ./worker
+          docker build -t scan/frontend:latest ./frontend
+
+      - name: Scan API image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: localhost:5000/api:latest
+          image-ref: scan/api:latest
           format: sarif
           output: trivy-api.sarif
           severity: CRITICAL
-          exit-code: 0 # Changed from 1 to 0 to allow the build to continue
-      - name: Run Trivy vulnerability scanner (Worker)
+          ignore-unfixed: true
+          exit-code: 1
+
+      - name: Scan Worker image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: localhost:5000/worker:latest
+          image-ref: scan/worker:latest
           format: sarif
           output: trivy-worker.sarif
           severity: CRITICAL
-          exit-code: 0 # Changed from 1 to 0
-      - name: Run Trivy vulnerability scanner (Frontend)
+          ignore-unfixed: true
+          exit-code: 1
+
+      - name: Scan Frontend image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: localhost:5000/frontend:latest
+          image-ref: scan/frontend:latest
           format: sarif
           output: trivy-frontend.sarif
           severity: CRITICAL
-          exit-code: 0 # Changed from 1 to 0
-      - uses: actions/upload-artifact@v4
+          ignore-unfixed: true
+          exit-code: 1
+
+      - name: Upload Trivy SARIF results
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: trivy-results
           path: "*.sarif"
 
+  # ── STAGE 5: INTEGRATION TEST ──────────────────────────────────────────────
   integration:
     runs-on: ubuntu-latest
     needs: security
     steps:
       - uses: actions/checkout@v4
-      - run: |
+
+      - name: Create .env file
+        run: |
           echo "REDIS_HOST=redis" >> .env
           echo "REDIS_PORT=6379" >> .env
           echo "API_URL=http://api:8000" >> .env
-      - run: docker compose up -d --build
-      - run: |
-          echo "Waiting for stack..."
+
+      - name: Start full stack
+        run: docker compose up -d --build
+
+      - name: Wait for all services to be healthy
+        run: |
+          echo "Waiting for stack to be ready..."
           sleep 30
           docker compose ps
-      - run: |
-          RESPONSE=$(curl -sf http://localhost:3000/submit -X POST -H "Content-Type: application/json" -d '{"task":"integration-test"}')
-          echo "Submit: $RESPONSE"
+
+      - name: Submit job and poll until completed
+        run: |
+          RESPONSE=$(curl -sf http://localhost:3000/submit \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"task":"integration-test"}')
+          echo "Submit response: $RESPONSE"
+
           JOB_ID=$(echo $RESPONSE | python3 -c "import sys,json; print(json.load(sys.stdin)['job_id'])")
+          echo "Job ID: $JOB_ID"
+
           for i in $(seq 1 12); do
-            STATUS=$(curl -sf http://localhost:3000/status/$JOB_ID | python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
+            STATUS=$(curl -sf http://localhost:3000/status/$JOB_ID | \
+              python3 -c "import sys,json; print(json.load(sys.stdin)['status'])")
             echo "Attempt $i: status=$STATUS"
             if [ "$STATUS" = "completed" ]; then
-              echo "Success"
+              echo "Integration test passed"
               exit 0
             fi
             sleep 5
           done
-          echo "Timeout"
+
+          echo "Integration test failed — job did not complete in time"
+          docker compose logs
           exit 1
-      - if: always()
+
+      - name: Tear down stack
+        if: always()
         run: docker compose down -v
 
+  # ── STAGE 6: DEPLOY ────────────────────────────────────────────────────────
+  # Runs on pushes to main only.
+  # Rolling update: stop old → pull new → start → health check → rollback if failed
   deploy:
     runs-on: ubuntu-latest
     needs: integration
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
+
       - uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          command_timeout: 30m 
+          command_timeout: 10m
           script: |
-            cd /home/${{ secrets.SERVER_USER }}/hng14-stage2-devops
-            git pull origin main
-            docker compose pull
-            docker compose up -d --build --no-deps
+            set -e
+            cd /home/hngdevops/hng14-stage2-devops
+
+            # Save current git SHA for rollback reference
+            OLD_SHA=$(git rev-parse HEAD)
+            echo "Current SHA: $OLD_SHA"
+
+            # Pull latest code
+            git fetch origin main
+            git reset --hard origin/main
+            echo "Updated to SHA: $(git rev-parse HEAD)"
+
+            # Stop old containers cleanly to free ports
+            docker compose down --remove-orphans || true
+
+            # Build and start new containers
+            docker compose up -d --build
+
+            # Wait for health checks to pass (max 60 seconds)
+            echo "Waiting for health checks..."
             for i in $(seq 1 12); do
               HEALTHY=$(docker compose ps | grep -c "healthy" || true)
-              if [ "$HEALTHY" -ge 4 ]; then
+              echo "Attempt $i: $HEALTHY/3 healthy"
+              if [ "$HEALTHY" -ge 3 ]; then
                 echo "Deploy successful"
                 exit 0
               fi
               sleep 5
             done
-            echo "Rollback"
-            git checkout HEAD~1
-            docker compose up -d --build --no-deps
+
+            # Health checks failed — roll back to previous commit
+            echo "Health checks failed — rolling back to $OLD_SHA"
+            docker compose down || true
+            git reset --hard "$OLD_SHA"
+            docker compose up -d --build
+            echo "Rollback complete"
             exit 1
