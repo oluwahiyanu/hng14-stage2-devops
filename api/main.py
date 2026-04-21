@@ -11,9 +11,11 @@ r = redis.Redis(
     decode_responses=True
 )
 
+
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
 
 @app.post("/jobs")
 def create_job():
@@ -24,6 +26,7 @@ def create_job():
         return {"job_id": job_id}
     except redis.ConnectionError:
         raise HTTPException(status_code=503, detail="Redis connection failed")
+
 
 @app.get("/jobs/{job_id}")
 def get_job(job_id: str):
