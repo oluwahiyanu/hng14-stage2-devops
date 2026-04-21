@@ -17,14 +17,17 @@ def signal_handler(signum, frame):
     running = False
     sys.exit(0)
 
+
 signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
+
 
 def process_job(job_id):
     print(f"Processing job {job_id}")
     time.sleep(2)
     r.hset(f"job:{job_id}", "status", "completed")
     print(f"Done: {job_id}")
+
 
 print("Worker started, waiting for jobs...")
 while running:
