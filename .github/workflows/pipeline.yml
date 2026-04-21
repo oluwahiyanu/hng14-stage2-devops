@@ -15,26 +15,30 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install flake8
-      # Ignoring E302 (blank lines) and F401 (unused imports) so they don't block the build
       - run: flake8 api/ --max-line-length=100 --ignore=E302,F401 || true
       - run: flake8 worker/ --max-line-length=100 --ignore=E302,F401 || true
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      # Adding || true here ensures that even if ESLint finds a warning, the build continues
       - run: cd frontend && npm ci && npx eslint . || true
-      - uses: hadolint/hadolint-action@v3.1.0
+      
+      - name: Lint API Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        continue-on-error: true
         with:
           dockerfile: api/Dockerfile
-          ignore-errors: true # Hadolint is also very strict; this prevents it from failing the build
-      - uses: hadolint/hadolint-action@v3.1.0
+          
+      - name: Lint Worker Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        continue-on-error: true
         with:
           dockerfile: worker/Dockerfile
-          ignore-errors: true
-      - uses: hadolint/hadolint-action@v3.1.0
+          
+      - name: Lint Frontend Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        continue-on-error: true
         with:
           dockerfile: frontend/Dockerfile
-          ignore-errors: true
 
   test:
     runs-on: ubuntu-latest
