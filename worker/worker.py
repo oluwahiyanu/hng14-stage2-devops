@@ -11,6 +11,8 @@ r = redis.Redis(
 )
 
 running = True
+
+
 def signal_handler(signum, frame):
     global running
     print("Received shutdown signal, exiting...")
