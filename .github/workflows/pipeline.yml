@@ -51,7 +51,8 @@ jobs:
       - run: |
           cd api
           pip install -r requirements.txt
-          pip install pytest pytest-cov
+          # Add httpx here alongside pytest and pytest-cov
+          pip install pytest pytest-cov httpx
       - run: |
           cd api
           pytest tests/ -v --cov=. --cov-report=xml --cov-report=term
