@@ -6,6 +6,9 @@ RUN pip install --upgrade pip && \
 
 FROM python:3.11-slim
 WORKDIR /app
+# --- ADD THIS LINE TO FIX CRITICAL CVEs ---
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+# ------------------------------------------
 COPY --from=builder /install /usr/local
 COPY . .
 RUN useradd -m -u 1001 appuser

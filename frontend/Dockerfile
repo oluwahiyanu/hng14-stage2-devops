@@ -4,6 +4,7 @@ COPY package*.json ./
 RUN npm install --omit=dev
 
 FROM node:20-slim
+RUN apk update && apk upgrade && rm -rf /var/cache/apk/*
 WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY . .
