@@ -1,14 +1,12 @@
 FROM python:3.11-slim AS builder
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip==24.0 && \
+    pip install --no-cache-dir -r requirements.txt
 
 FROM python:3.11-slim
 WORKDIR /app
-# --- ADD THIS LINE TO FIX CRITICAL CVEs ---
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
-# ------------------------------------------
 COPY --from=builder /install /usr/local
 COPY . .
 RUN useradd -m -u 1001 appuser
