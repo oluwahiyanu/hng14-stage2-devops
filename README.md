@@ -1,4 +1,4 @@
-# HNG Stage 2 — Containerized Job Processing System
+# Containerized Job Processing System
 
 A production-ready microservices application containerized with Docker, orchestrated with Docker Compose, and deployed via a full CI/CD pipeline on GitHub Actions.
 
